@@ -1,34 +1,20 @@
 export class CircleMesh {
-    buffer: GPUBuffer
-    bufferLayout: GPUVertexBufferLayout
-    erased : boolean = false
-    constructor(
-        device: GPUDevice, 
-        center: number[], 
-        canvasWidth: number, 
-        canvasHeight: number, 
-        rgb : number[], 
-        radius : number = 0.1) 
-        {
+    buffer: GPUBuffer;
+    bufferLayout: GPUVertexBufferLayout;
+
+    constructor(device: GPUDevice) {
         const verts: number[][] = [];
-        const segments = 32; // can use to increase resolution, gotta come up with a formula
-        // const radius = 0.1;
-        const cx = center[0];
-        const cy = center[1]; // r = 0.13, g = 0.157, b = 0.192;
-        const [r, g, b] = rgb;
-        // rgb(34, 40, 49)
-        const aspectRatio = canvasWidth / canvasHeight;
-        const radiusX = radius ; // dont need to do this anymore breh
-        const radiusY = radius; 
+        const segments = 32; 
 
         for (let i = 0; i <= segments; i++) {
             const angle = (i / segments) * 2 * Math.PI;
-            const x = Math.cos(angle) * radiusX;
-            const y = Math.sin(angle) * radiusY;
+            const y = Math.cos(angle);
+            const z = Math.sin(angle);
 
-            verts.push([0, cx + x, cy + y, r, g, b]);
-            verts.push([0, cx, cy, r, g, b]);     
-        } // perfect circle secy
+            // [x, y, z] - circle is on the X=0 plane
+            verts.push([0, y, z]);
+            verts.push([0, 0, 0]);     
+        }
 
         const vertices: Float32Array = new Float32Array(verts.flat());
         const usage: GPUBufferUsageFlags = GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST;
@@ -44,23 +30,19 @@ export class CircleMesh {
         this.buffer.unmap();
 
         this.bufferLayout = {
-            arrayStride: 24,
+            arrayStride: 12, // 3 floats * 4 bytes
+            stepMode: "vertex",
             attributes: [
                 {
                     shaderLocation: 0,
                     format: "float32x3",
                     offset: 0
-                },
-                {
-                    shaderLocation: 1,
-                    format: "float32x3",
-                    offset: 12
                 }
             ]
-        }
+        };
     }
 
     destroy() {
         this.buffer.destroy();
     }
-}
+}

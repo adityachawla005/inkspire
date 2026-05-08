@@ -30,6 +30,8 @@ export class Renderer {
 
     async initialize() {
         await this.contextMgr.setup();
+        this.strokeMgr.initialize();
+        this.cursorRenderer.initialize();
         this.setCanvasResolution();
         this.contextMgr.configure();
 
@@ -66,15 +68,18 @@ export class Renderer {
         lastDrawX: number | null,
         lastDrawY: number | null,
         erasing: boolean,
-        brushSize : number = 0.07,
-        brushColor : number[] = [0.13, 0.157, 0.192] 
+        brushSize: number = 0.07,
+        brushColor: number[] = [0.2, 0.2, 0.2],
+        pressure: number = 1.0,
+        usePenPressure: boolean = false,
+        pressureCurve: number = 1.0
     ) {
-        document.getElementById('brushSize')!.innerText = brushSize.toString();
+        document.getElementById('brushSize')!.innerText = brushSize.toFixed(3);
         if (panning) {
             this.camera.pan(mouseX, mouseY);
         }
 
-        this.strokeMgr.update(drawing, erasing, drawX, drawY, lastDrawX, lastDrawY, brushSize, brushColor);
+        this.strokeMgr.update(drawing, erasing, drawX, drawY, lastDrawX, lastDrawY, brushSize, brushColor, pressure, usePenPressure, pressureCurve);
         this.cursorRenderer.update(drawX, drawY, erasing, brushSize + 0.03);
 
         const projection = mat4.create();

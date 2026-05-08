@@ -29,7 +29,7 @@ export class GPUContextManager {
         });
     }
 
-    async createPipeline(bufferLayout: GPUVertexBufferLayout) {
+    async createPipeline(bufferLayouts: GPUVertexBufferLayout[]) {
         this.uniformBuffer = this.device.createBuffer({
             size: 64 * 3,
             usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
@@ -60,7 +60,7 @@ export class GPUContextManager {
             vertex: {
                 module: this.device.createShaderModule({ code: shader }),
                 entryPoint: "vs_main",
-                buffers: [bufferLayout]
+                buffers: bufferLayouts
             },
             fragment: {
                 module: this.device.createShaderModule({ code: shader }),

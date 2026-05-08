@@ -1,19 +1,15 @@
 import { Camera } from "./camera";
 
 export class InputManager {
-    isCursorLocked = false;
     isSpacePressed = false;
     isLeftClicked = false;
     isErasing = false;
-    skipNextClick = false;
     zoomOut = false;
     zoomIn = false;
     takeScreenShot = false;
 
     mouseX = 0;
     mouseY = 0;
-    virtualMouseX = 0;
-    virtualMouseY = 0;
     ndcX = 0;
     ndcY = 0;
 
@@ -21,7 +17,11 @@ export class InputManager {
     mouseXLabel: HTMLElement;
     mouseYLabel: HTMLElement;
     pointerLabel: HTMLElement;
-    brushSize : number = 0.07;
+    brushSize : number = 0.12;
+    smoothingWeight : number = 0.7;
+    pressure: number = 1.0;
+    usePenPressure: boolean = false;
+    pressureCurve: number = 0.8;
     taperPercent : number = 0.15;
     brushColor: number[] = [0.13, 0.157, 0.192];
 
@@ -49,22 +49,67 @@ export class InputManager {
         document.addEventListener("keydown", this.onKeyDown);
         document.addEventListener("keyup", this.onKeyUp);
 
-        document.addEventListener("pointerlockchange", () => {
-            this.isCursorLocked = document.pointerLockElement === canvas;
-            if (this.isCursorLocked) this.skipNextClick = true;
-        });
+        canvas.style.cursor = "none";
+        canvas.style.touchAction = "none"; // Prevent default touch actions like scrolling
 
-        canvas.onclick = () => canvas.requestPointerLock();
-        canvas.addEventListener("mousedown", e => { if (e.button === 0) this.isLeftClicked = true; });
-        canvas.addEventListener("mouseup", e => { if (e.button === 0) this.isLeftClicked = false; });
-        canvas.addEventListener("mouseleave", () => { this.isLeftClicked = false; });
+        canvas.addEventListener("pointerdown", e => {
+            if (e.button === 0) {
+                this.isLeftClicked = true;
+                this.updatePointerCoordinates(e, canvas);
+            }
+        });
+        canvas.addEventListener("pointerup", e => {
+            if (e.button === 0) this.isLeftClicked = false;
+        });
+        canvas.addEventListener("pointerleave", () => {
+            this.isLeftClicked = false;
+            this.mouseX = 0;
+            this.mouseY = 0;
+        });
+        
         const brushSlider = document.getElementById("brush-size-slider") as HTMLInputElement;
+        const brushNumber = document.getElementById("brush-size-number") as HTMLInputElement;
         
         brushSlider.addEventListener("input", () => {
             this.brushSize = parseFloat(brushSlider.value);
+            brushNumber.value = brushSlider.value;
         });
         
-        canvas.addEventListener("mousemove", (e) => this.onMouseMove(e, canvas));
+        brushNumber.addEventListener("input", () => {
+            this.brushSize = parseFloat(brushNumber.value);
+            brushSlider.value = brushNumber.value;
+        });
+        
+        const smoothingSlider = document.getElementById("smoothing-slider") as HTMLInputElement;
+        const smoothingNumber = document.getElementById("smoothing-number") as HTMLInputElement;
+
+        smoothingSlider.addEventListener("input", () => {
+            this.smoothingWeight = parseFloat(smoothingSlider.value);
+            smoothingNumber.value = smoothingSlider.value;
+        });
+
+        smoothingNumber.addEventListener("input", () => {
+            this.smoothingWeight = parseFloat(smoothingNumber.value);
+            smoothingSlider.value = smoothingNumber.value;
+        });
+
+        const pressureToggle = document.getElementById("pressure-toggle") as HTMLInputElement;
+        pressureToggle.addEventListener("change", () => {
+            this.usePenPressure = pressureToggle.checked;
+        });
+
+        const pressureCurveSlider = document.getElementById("pressure-curve-slider") as HTMLInputElement;
+        const pressureCurveNumber = document.getElementById("pressure-curve-number") as HTMLInputElement;
+        pressureCurveSlider.addEventListener("input", () => {
+            this.pressureCurve = parseFloat(pressureCurveSlider.value);
+            pressureCurveNumber.value = pressureCurveSlider.value;
+        });
+        pressureCurveNumber.addEventListener("input", () => {
+            this.pressureCurve = parseFloat(pressureCurveNumber.value);
+            pressureCurveSlider.value = pressureCurveNumber.value;
+        });
+        
+        canvas.addEventListener("pointermove", (e) => this.onPointerMove(e, canvas));
     }
 
     private onKeyDown = (e: KeyboardEvent) => {
@@ -97,19 +142,25 @@ export class InputManager {
         }
     };
 
-    private onMouseMove(e: MouseEvent, canvas: HTMLCanvasElement) {
-        if (!this.isCursorLocked) return;
+    private updatePointerCoordinates(e: PointerEvent, canvas: HTMLCanvasElement) {
+        const rect = canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+
+        this.ndcX = (x / rect.width) * 2 - 1;
+        this.ndcY = 1 - (y / rect.height) * 2;
+    }
+
+    private onPointerMove(e: PointerEvent, canvas: HTMLCanvasElement) {
         this.mouseX = e.movementX;
         this.mouseY = e.movementY;
+        // e.pressure is 0.5 for mouse (no real pressure), 0–1 for pen tablets
+        this.pressure = e.pressure;
 
-        this.virtualMouseX += e.movementX;
-        this.virtualMouseY += e.movementY;
+        this.updatePointerCoordinates(e, canvas);
 
-        this.ndcX = (10 * this.virtualMouseX) / canvas.width;
-        this.ndcY = 1 - ((10 * this.virtualMouseY) / canvas.height);
-
-        this.mouseXLabel.innerText = this.ndcX.toString();
-        this.mouseYLabel.innerText = this.ndcY.toString();
+        this.mouseXLabel.innerText = this.ndcX.toFixed(3);
+        this.mouseYLabel.innerText = this.ndcY.toFixed(3);
         this.pointerLabel.innerText = (this.isSpacePressed && this.isLeftClicked).toString();
     }
 }

@@ -40,7 +40,22 @@ key down : <span id="key-down"></span>
     <div id="right-debug-panel">
       <div id="brush-controls">
         <label for="brush-size-slider">Brush Size</label>
-        <input type="range" id="brush-size-slider" min="0.01" max="1.5" step="0.01" value="0.07">
+        <input type="range" id="brush-size-slider" min="0.01" max="1.5" step="0.01" value="0.12">
+        <input type="number" id="brush-size-number" min="0.01" max="1.5" step="0.01" value="0.12" style="width: 60px;">
+      </div>
+      <div id="smoothing-controls" style="margin-top: 10px;">
+        <label for="smoothing-slider">Smoothing (Alpha)</label>
+        <input type="range" id="smoothing-slider" min="0.01" max="1.0" step="0.01" value="0.7">
+        <input type="number" id="smoothing-number" min="0.01" max="1.0" step="0.01" value="0.7" style="width: 60px;">
+      </div>
+      <div id="pressure-controls" style="margin-top: 10px;">
+        <label for="pressure-toggle">Pen Pressure</label>
+        <input type="checkbox" id="pressure-toggle">
+      </div>
+      <div id="pressure-curve-controls" style="margin-top: 10px;">
+        <label for="pressure-curve-slider">Pressure Curve</label>
+        <input type="range" id="pressure-curve-slider" min="0.2" max="4.0" step="0.1" value="0.8">
+        <input type="number" id="pressure-curve-number" min="0.2" max="4.0" step="0.1" value="0.8" style="width: 60px;">
       </div>
       <!-- Color Picker -->
         <div id="color-picker-controls" style="margin-top: 20px;">

@@ -4,7 +4,6 @@ struct TransformData{
     projection: mat4x4<f32> // perspective
 };
 
-
 @binding(0) @group(0) var<uniform> transformUBO : TransformData;
 
 struct Fragment {
@@ -13,12 +12,23 @@ struct Fragment {
 };
 
 @vertex
-fn vs_main(@location(0) vertexPostion: vec3<f32>, @location(1) vertexColor: vec3<f32>) -> Fragment {
+fn vs_main(
+    @location(0) vertexPosition: vec3<f32>,
+    @location(1) instanceOffset: vec2<f32>,
+    @location(2) instanceColor: vec3<f32>,
+    @location(3) instanceRadius: f32
+) -> Fragment {
 
     var output : Fragment;
-    output.Position = transformUBO.projection * transformUBO.view * transformUBO.model * vec4<f32>(vertexPostion, 1.0);
-    // output.Position = vec4<f32>(vertexPostion, 0.0, 1.0);
-    output.Color = vec4<f32>(vertexColor, 1.0);
+    
+    let pos = vec3<f32>(
+        vertexPosition.x, 
+        instanceOffset.x + vertexPosition.y * instanceRadius,
+        instanceOffset.y + vertexPosition.z * instanceRadius
+    );
+
+    output.Position = transformUBO.projection * transformUBO.view * transformUBO.model * vec4<f32>(pos, 1.0);
+    output.Color = vec4<f32>(instanceColor, 1.0);
 
     return output;
 }

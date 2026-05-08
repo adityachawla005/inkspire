@@ -43,13 +43,13 @@ export class App {
 
     run = () => {
         const i = this.input;
-        const alpha = 0.45; 
+        const alpha = i.smoothingWeight; 
 
         if(i.takeScreenShot){
             i.takeScreenShot = false;
             // remove cursor
             this.renderer.render(
-                true, // panning
+                true, // panning (hide cursor)
                 false,
                 i.mouseX,
                 i.mouseY,
@@ -58,8 +58,11 @@ export class App {
                 this.lastDrawX,
                 this.lastDrawY,
                 i.isErasing,
-                i.brushSize,// brush Sizez
-                i.brushColor
+                i.brushSize,
+                i.brushColor,
+                i.pressure,
+                i.usePenPressure,
+                i.pressureCurve
             );
             const dataURL = this.canvas.toDataURL("image/png");
 
@@ -83,12 +86,26 @@ export class App {
         this.renderer.camera.update();
         document.getElementById('zoom')!.innerText = this.zoomLevel.toString();
 
-        const isDrawing = i.isLeftClicked && i.isCursorLocked && !i.skipNextClick && !i.isSpacePressed;
-        this.smoothedX = (1 - alpha) * this.smoothedX + alpha * i.ndcX;
-        this.smoothedY = (1 - alpha) * this.smoothedY + alpha * i.ndcY;
+        const isDrawing = i.isLeftClicked && !i.isSpacePressed;
+        
+        const fovy = Math.PI / 4;
+        const aspect = this.canvas.width / this.canvas.height;
+        const p11 = 1 / Math.tan(fovy / 2);
+        const p00 = p11 / aspect;
+
+        const worldY = this.renderer.camera.position[1] + (i.ndcX * this.zoomLevel) / p00;
+        const worldZ = this.renderer.camera.position[2] + (i.ndcY * this.zoomLevel) / p11;
+
+        if (this.lastDrawX === null && isDrawing) {
+            this.smoothedX = worldY;
+            this.smoothedY = worldZ;
+        } else {
+            this.smoothedX = (1 - alpha) * this.smoothedX + alpha * worldY;
+            this.smoothedY = (1 - alpha) * this.smoothedY + alpha * worldZ;
+        }
 
         this.renderer.render(
-            i.isSpacePressed && i.isCursorLocked, // panning
+            i.isSpacePressed && i.isLeftClicked, // panning
             isDrawing,
             i.mouseX,
             i.mouseY,
@@ -97,8 +114,11 @@ export class App {
             this.lastDrawX,
             this.lastDrawY,
             i.isErasing,
-            i.brushSize,// brush Sizez
-            i.brushColor
+            i.brushSize,
+            i.brushColor,
+            i.pressure,
+            i.usePenPressure,
+            i.pressureCurve
         );
 
         if (isDrawing) {
@@ -109,7 +129,6 @@ export class App {
             this.lastDrawY = null;
         }
 
-        i.skipNextClick = false;
         i.mouseX = 0;
         i.mouseY = 0;
 

@@ -1,76 +1,151 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>webgpu escapades</title>
+  <title>inkspire</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="container">
+<div id="app">
 
-    <!-- Left Debug Panel -->
-    <div id="left-debug-panel">
-      <div id="debug">Debug Info
-        <hr>
-zoom level : <span id="zoom"></span>
-brush size : <span id="brushSize"></span>
-erasing : <span id="erasing"></span>
-strokes : <span id="strokes"></span>
-maxSize : <span id="maxsize"></span>
-minSize : <span id="minsize"></span>
-brush color : <span id="brushcolor"></span>
-device : <span id="dev-width"></span>
-panning ? : <span id="pointerlock"></span>
-key down : <span id="key-down"></span>
-        <hr>
-      </div> 
+  <!-- TOOLBAR -->
+  <div id="toolbar">
+    <span class="brand">inkspire</span>
+    <div class="toolbar-spacer"></div>
+    <div class="tool-group">
+      <button class="tbtn" id="save-btn">save</button>
+      <button class="tbtn" id="load-btn">open</button>
+      <button class="tbtn accent" id="export-btn">export ↗</button>
     </div>
-
-    <!-- Center Canvas with Mouse Info -->
-    <div style="position: relative;">
-      <canvas id="gfx-main" width="800" height="600"></canvas>
-      <div id="mouse-info">
-        x: <span id="mouse-x">0</span><br>
-        y: <span id="mouse-y">0</span>
-      </div>
-    </div>
-
-    <!-- Right Debug Panel with Slider -->
-    <div id="right-debug-panel">
-      <div id="brush-controls">
-        <label for="brush-size-slider">Brush Size</label>
-        <input type="range" id="brush-size-slider" min="0.01" max="1.5" step="0.01" value="0.12">
-        <input type="number" id="brush-size-number" min="0.01" max="1.5" step="0.01" value="0.12" style="width: 60px;">
-      </div>
-      <div id="smoothing-controls" style="margin-top: 10px;">
-        <label for="smoothing-slider">Smoothing (Alpha)</label>
-        <input type="range" id="smoothing-slider" min="0.01" max="1.0" step="0.01" value="0.7">
-        <input type="number" id="smoothing-number" min="0.01" max="1.0" step="0.01" value="0.7" style="width: 60px;">
-      </div>
-      <div id="pressure-controls" style="margin-top: 10px;">
-        <label for="pressure-toggle">Pen Pressure</label>
-        <input type="checkbox" id="pressure-toggle">
-      </div>
-      <div id="pressure-curve-controls" style="margin-top: 10px;">
-        <label for="pressure-curve-slider">Pressure Curve</label>
-        <input type="range" id="pressure-curve-slider" min="0.2" max="4.0" step="0.1" value="0.8">
-        <input type="number" id="pressure-curve-number" min="0.2" max="4.0" step="0.1" value="0.8" style="width: 60px;">
-      </div>
-      <!-- Color Picker -->
-        <div id="color-picker-controls" style="margin-top: 20px;">
-        <label for="color-picker">Brush Color</label><br>
-        <input type="color" id="color-picker" value="#222831">
-        <div>
-r: <span id="color-r">34</span><br>
-g: <span id="color-g">40</span><br>
-b: <span id="color-b">49</span>
-        </div>
-        </div>
-    </div>
-
   </div>
 
-  <script src="dist/main.js"></script>
+  <!-- WORKSPACE -->
+  <div id="workspace">
+
+    <!-- Layers panel -->
+    <div id="layers-panel">
+      <div class="panel-head">
+        <span class="panel-head-label">layers</span>
+        <button class="smbtn" id="add-layer-btn" title="add layer">+</button>
+      </div>
+      <div id="layer-list"></div>
+    </div>
+
+    <!-- Canvas area — canvas floats inside here -->
+    <div id="canvas-area">
+      <div id="canvas-wrap">
+        <div id="canvas-shadow">
+          <canvas id="gfx-main" width="800" height="600"></canvas>
+        </div>
+      </div>
+      <!-- Hotkey hint -->
+      <div id="hotkey-hint">G drag · R drag · Shift+/- scale · Home reset</div>
+    </div>
+
+    <!-- Brush panel -->
+    <div id="brush-panel">
+      <div class="panel-head">
+        <span class="panel-head-label">brush</span>
+      </div>
+      <div id="brush-scroll">
+
+        <div class="color-zone">
+          <input type="color" id="color-picker" value="#1c1814" title="color"/>
+          <div class="swatch-row" id="swatch-row"></div>
+        </div>
+
+        <div class="bsection">
+          <span class="bsection-title">stroke</span>
+          <div class="bctrl">
+            <div class="bctrl-row">
+              <span class="bctrl-name">size</span>
+              <span class="bctrl-val" id="brush-size-val">8%</span>
+            </div>
+            <input type="range" id="brush-size-slider" min="0.01" max="1.5" step="0.01" value="0.12">
+          </div>
+          <div class="bctrl">
+            <div class="bctrl-row">
+              <span class="bctrl-name">smooth</span>
+              <span class="bctrl-val" id="smoothing-val">70%</span>
+            </div>
+            <input type="range" id="smoothing-slider" min="0.01" max="1.0" step="0.01" value="0.7">
+          </div>
+        </div>
+
+        <div class="bsection">
+          <span class="bsection-title">pressure</span>
+          <div class="btoggle-row">
+            <span class="btoggle-label">enabled</span>
+            <div class="toggle on" id="pressure-toggle" role="switch" aria-checked="true"></div>
+          </div>
+          <div class="bctrl">
+            <div class="bctrl-row">
+              <span class="bctrl-name">curve</span>
+              <span class="bctrl-val" id="pressure-curve-val">0.8</span>
+            </div>
+            <input type="range" id="pressure-curve-slider" min="0.2" max="4.0" step="0.1" value="0.8">
+          </div>
+        </div>
+
+        <div class="bsection">
+          <span class="bsection-title">onion skin</span>
+          <div class="btoggle-row">
+            <span class="btoggle-label">visible</span>
+            <div class="toggle" id="onion-toggle" role="switch" aria-checked="false"></div>
+          </div>
+          <div class="bctrl">
+            <div class="bctrl-row">
+              <span class="bctrl-name">opacity</span>
+              <span class="bctrl-val" id="onion-opacity-val">30%</span>
+            </div>
+            <input type="range" id="onion-opacity-slider" min="1" max="100" step="1" value="30">
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- BOTTOM -->
+  <div id="bottom">
+    <div id="anim-controls">
+      <button class="abtn" id="prev-frame-btn">‹</button>
+      <button class="abtn" id="play-btn">▶ play</button>
+      <button class="abtn" id="next-frame-btn">›</button>
+      <div class="asep"></div>
+      <label class="fps-wrap">fps <input type="number" id="fps-input" min="1" max="60" value="12"/></label>
+      <div class="asep"></div>
+      <button class="abtn" id="dup-frame-btn">dup</button>
+      <button class="abtn" id="del-frame-btn">del</button>
+      <div class="asep"></div>
+      <button class="abtn" id="onion-btn">onion</button>
+      <span class="frame-counter" id="frame-label">1 / 1</span>
+    </div>
+    <div id="timeline"></div>
+  </div>
+
+</div>
+
+<script src="dist/main.js"></script>
+<script>
+  // Toggle divs
+  document.querySelectorAll('.toggle').forEach(tog => {
+    tog.addEventListener('click', () => {
+      tog.classList.toggle('on');
+      tog.setAttribute('aria-checked', tog.classList.contains('on'));
+    });
+  });
+  // Slider display
+  [
+    ['brush-size-slider','brush-size-val', v => Math.round(v*100/1.5)+'%'],
+    ['smoothing-slider','smoothing-val', v => Math.round(v*100)+'%'],
+    ['pressure-curve-slider','pressure-curve-val', v => parseFloat(v).toFixed(1)],
+    ['onion-opacity-slider','onion-opacity-val', v => v+'%'],
+  ].forEach(([s,o,f]) => {
+    const el = document.getElementById(s), out = document.getElementById(o);
+    if(el&&out) el.addEventListener('input',()=>{ out.textContent=f(el.value); });
+  });
+</script>
 </body>
 </html>

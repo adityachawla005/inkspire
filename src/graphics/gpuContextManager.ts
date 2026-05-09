@@ -65,7 +65,13 @@ export class GPUContextManager {
             fragment: {
                 module: this.device.createShaderModule({ code: shader }),
                 entryPoint: "fs_main",
-                targets: [{ format: this.format }]
+                targets: [{
+                    format: this.format,
+                    blend: {
+                        color: { srcFactor: "src-alpha", dstFactor: "one-minus-src-alpha", operation: "add" },
+                        alpha: { srcFactor: "one",       dstFactor: "one-minus-src-alpha", operation: "add" }
+                    }
+                }]
             },
             primitive: { topology: "triangle-strip" }
         });

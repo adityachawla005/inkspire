@@ -1,264 +1,306 @@
 import { CircleMesh } from "./circleMesh";
-import { Stroke } from "./stroke";
 import { GPUContextManager } from "./gpuContextManager";
 import { HistoryManager } from "../control/historyManager";
+import { AnimationManager } from "../control/animationManager";
+import { IStroke } from "../types/animationTypes";
+
+// 7 floats per instance: x, y, r, g, b, radius, alpha
+const FLOATS_PER_INSTANCE = 7;
+const BYTES_PER_INSTANCE  = FLOATS_PER_INSTANCE * 4; // 28
 
 export class StrokeManager {
     canvas: HTMLCanvasElement;
     contextMgr: GPUContextManager;
-    circleMesh!: CircleMesh;
-    strokes: Stroke[] = [];
-    currentStrokePoints: number[][] = [];
-    defaultBrushSize: number = 0.07;
-    minRadius: number;
-    maxRadius: number;
+    animMgr: AnimationManager;
 
+    circleMesh!: CircleMesh;
+
+    // Main instance buffer (active frame strokes)
     instanceBuffer!: GPUBuffer;
-    maxInstances: number = 100000;
-    instanceCount: number = 0;
+    maxInstances = 200000;
+    instanceCount = 0;
     instanceData!: Float32Array;
+
+    // Onion skin instance buffer
+    onionBuffer!: GPUBuffer;
+    onionCount = 0;
+    onionData!: Float32Array;
+
+    // Brush settings
+    defaultBrushSize = 0.12;
+    maxRadius = 0.12;
+    minRadius = 0.02;
+
+    // In-progress stroke accumulation: [x, y, pressure, appliedRadius]
+    currentStrokePoints: number[][] = [];
 
     constructor(
         canvas: HTMLCanvasElement,
         contextMgr: GPUContextManager,
         public historyMgr: HistoryManager,
-        maxRadius: number = 0.07,
-        minRadius: number = 0.02
+        animMgr: AnimationManager
     ) {
         this.canvas = canvas;
         this.contextMgr = contextMgr;
-        this.maxRadius = maxRadius;
-        this.minRadius = minRadius;
+        this.animMgr = animMgr;
     }
 
     initialize() {
         this.circleMesh = new CircleMesh(this.contextMgr.device);
 
-        this.instanceData = new Float32Array(this.maxInstances * 6);
+        this.instanceData = new Float32Array(this.maxInstances * FLOATS_PER_INSTANCE);
         this.instanceBuffer = this.contextMgr.device.createBuffer({
             size: this.instanceData.byteLength,
             usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
         });
+
+        this.onionData = new Float32Array(this.maxInstances * FLOATS_PER_INSTANCE);
+        this.onionBuffer = this.contextMgr.device.createBuffer({
+            size: this.onionData.byteLength,
+            usage: GPUBufferUsage.VERTEX | GPUBufferUsage.COPY_DST,
+        });
     }
 
-    getBufferLayout(): GPUVertexBufferLayout[] {
+    getBufferLayouts(): GPUVertexBufferLayout[] {
         const instanceLayout: GPUVertexBufferLayout = {
-            arrayStride: 24, // 6 floats (x, y, r, g, b, radius) * 4 bytes
+            arrayStride: BYTES_PER_INSTANCE,
             stepMode: "instance",
             attributes: [
-                { shaderLocation: 1, format: "float32x2", offset: 0 },
-                { shaderLocation: 2, format: "float32x3", offset: 8 },
-                { shaderLocation: 3, format: "float32", offset: 20 }
-            ]
+                { shaderLocation: 1, format: "float32x2", offset: 0  }, // offset
+                { shaderLocation: 2, format: "float32x3", offset: 8  }, // color
+                { shaderLocation: 3, format: "float32",   offset: 20 }, // radius
+                { shaderLocation: 4, format: "float32",   offset: 24 }, // alpha
+            ],
         };
         return [this.circleMesh.bufferLayout, instanceLayout];
     }
 
+    // ── Load a frame into the GPU buffer ──────────────────────────────────────
+
+    loadFrame() {
+        this.instanceCount = 0;
+        const strokes = this.animMgr.getFrameStrokes(this.animMgr.currentFrameIndex);
+        for (const s of strokes) {
+            for (let i = 0; i < s.points.length; i++) {
+                this.pushInstance(s.points[i][0], s.points[i][1], s.color, s.radii[i], 1.0);
+            }
+        }
+        this.flushInstanceBuffer();
+    }
+
+    loadOnionSkins() {
+        this.onionCount = 0;
+        const fi = this.animMgr.currentFrameIndex;
+
+        const pushOnion = (frameIdx: number, color: number[]) => {
+            const strokes = this.animMgr.getFrameStrokes(frameIdx);
+            for (const s of strokes) {
+                for (let i = 0; i < s.points.length; i++) {
+                    this.pushOnionInstance(s.points[i][0], s.points[i][1], color, s.radii[i]);
+                }
+            }
+        };
+
+        if (fi > 0) pushOnion(fi - 1, [1.0, 0.35, 0.35]);
+        if (fi > 1) pushOnion(fi - 2, [1.0, 0.6,  0.6 ]);
+        if (fi < this.animMgr.frameCount - 1) pushOnion(fi + 1, [0.25, 0.85, 0.35]);
+        if (fi < this.animMgr.frameCount - 2) pushOnion(fi + 2, [0.6,  1.0,  0.6 ]);
+
+        if (this.onionCount > 0) {
+            const slice = this.onionData.subarray(0, this.onionCount * FLOATS_PER_INSTANCE);
+            this.contextMgr.device.queue.writeBuffer(
+                this.onionBuffer, 0, slice.buffer, slice.byteOffset, slice.byteLength
+            );
+        }
+    }
+
+    // ── Real-time drawing update ───────────────────────────────────────────────
+
     update(
-        drawing: boolean,
-        erasing: boolean,
-        drawX: number,
-        drawY: number,
-        lastDrawX: number | null,
-        lastDrawY: number | null,
-        brushSize: number,
-        brushColor: number[] = [0.13, 0.157, 0.192],
-        pressure: number = 1.0,
-        usePenPressure: boolean = false,
-        pressureCurve: number = 1.0
+        drawing: boolean, erasing: boolean,
+        drawX: number, drawY: number,
+        lastDrawX: number | null, lastDrawY: number | null,
+        brushSize: number, brushColor: number[],
+        pressure: number, usePenPressure: boolean, pressureCurve: number
     ) {
-        brushColor = [0.2, 0.2, 0.2];
-        const minSize = 0.01;
-        const maxSize = 2.5;
-        const clamped = Math.min(Math.max(brushSize, minSize), maxSize);
-
-        const maxTaper = 0.7;
-        const scale = 20;
-        const taper = maxTaper / (1 + scale * clamped * clamped);
-        const taperFactor = Math.min(Math.max(taper, 0), 0.95);
-
+        const clamped = Math.min(Math.max(brushSize, 0.01), 2.5);
+        const taperFactor = Math.min(0.95, 0.7 / (1 + 20 * clamped * clamped));
         this.defaultBrushSize = brushSize;
         this.maxRadius = brushSize;
         this.minRadius = brushSize * (1 - taperFactor);
 
-        const maxSizeElem = document.getElementById('maxsize');
-        const minSizeElem = document.getElementById('minsize');
-        if (maxSizeElem) maxSizeElem.innerText = this.maxRadius.toFixed(3);
-        if (minSizeElem) minSizeElem.innerText = this.minRadius.toFixed(3);
-
         if (drawing && !erasing) {
-            const prevX = lastDrawX;
-            const prevY = lastDrawY;
-
-            if (prevX === null || prevY === null) {
+            if (lastDrawX === null || lastDrawY === null) {
                 if (usePenPressure) {
-                    const effectivePressure = Math.pow(Math.max(0, Math.min(1, pressure)), pressureCurve);
-                    const radius = this.maxRadius * effectivePressure;
-                    this.currentStrokePoints.push([drawX, drawY, pressure, radius]);
-                    this.drawCircle(drawX, drawY, brushColor, radius); // real radius, not preview
+                    const ep = Math.pow(Math.max(0, Math.min(1, pressure)), pressureCurve);
+                    const r  = this.maxRadius * ep;
+                    this.currentStrokePoints.push([drawX, drawY, pressure, r]);
+                    this.pushInstance(drawX, drawY, brushColor, r, 1.0);
+                    this.flushLast(1);
                 } else {
                     this.currentStrokePoints.push([drawX, drawY, pressure, this.defaultBrushSize]);
-                    this.drawCircle(drawX, drawY, brushColor); // preview at default size
+                    this.pushInstance(drawX, drawY, brushColor, this.defaultBrushSize, 1.0);
+                    this.flushLast(1);
                 }
             } else {
-                const dx = drawX - prevX;
-                const dy = drawY - prevY;
-                const dist = Math.sqrt(dx * dx + dy * dy);
-                const spacing = 0.02;
-                const steps = Math.max(1, Math.floor(dist / spacing));
-
+                const dx = drawX - lastDrawX, dy = drawY - lastDrawY;
+                const steps = Math.max(1, Math.floor(Math.sqrt(dx * dx + dy * dy) / 0.02));
                 for (let i = 0; i <= steps; i++) {
                     const t = i / steps;
-                    const x = prevX + dx * t;
-                    const y = prevY + dy * t;
-                    const prevPressure = this.currentStrokePoints.length > 0
+                    const x = lastDrawX + dx * t;
+                    const y = lastDrawY + dy * t;
+                    const prevP = this.currentStrokePoints.length > 0
                         ? this.currentStrokePoints[this.currentStrokePoints.length - 1][2]
                         : pressure;
-                    const interpPressure = prevPressure + (pressure - prevPressure) * t;
+                    const ip = prevP + (pressure - prevP) * t;
 
                     if (usePenPressure) {
-                        const effectivePressure = Math.pow(Math.max(0, Math.min(1, interpPressure)), pressureCurve);
-                        const radius = this.maxRadius * effectivePressure;
-                        this.currentStrokePoints.push([x, y, interpPressure, radius]);
-                        this.drawCircle(x, y, brushColor, radius); // real radius in real-time
+                        const ep = Math.pow(Math.max(0, Math.min(1, ip)), pressureCurve);
+                        const r  = this.maxRadius * ep;
+                        this.currentStrokePoints.push([x, y, ip, r]);
+                        this.pushInstance(x, y, brushColor, r, 1.0);
                     } else {
-                        this.currentStrokePoints.push([x, y, interpPressure, this.defaultBrushSize]);
-                        this.drawCircle(x, y, brushColor); // preview at default size
+                        this.currentStrokePoints.push([x, y, ip, this.defaultBrushSize]);
+                        this.pushInstance(x, y, brushColor, this.defaultBrushSize, 1.0);
                     }
                 }
+                this.flushLast(steps + 1);
             }
         }
 
+        // Stroke commit
         if (!drawing && !erasing && this.currentStrokePoints.length > 0) {
-            this.historyMgr.save(this.strokes);
-
-            const totalPoints = this.currentStrokePoints.length;
-            const taperPercent = 0.15;
+            const total   = this.currentStrokePoints.length;
             const radii: number[] = [];
 
             if (usePenPressure) {
-                // Circles are already drawn with the correct radius — just save the Stroke record.
-                const startIndex = this.instanceCount - totalPoints;
-                for (let i = 0; i < totalPoints; i++) {
-                    radii.push(this.currentStrokePoints[i][3]); // already-applied radius
-                }
-                const endIndex = this.instanceCount - 1;
-                this.strokes.push(new Stroke(
-                    this.currentStrokePoints.map(p => [p[0], p[1]]),
-                    radii,
-                    brushColor,
-                    startIndex,
-                    endIndex
-                ));
+                for (let i = 0; i < total; i++) radii.push(this.currentStrokePoints[i][3]);
+                const stroke: IStroke = {
+                    points: this.currentStrokePoints.map(p => [p[0], p[1]]),
+                    radii, color: [...brushColor],
+                };
+                this.historyMgr.save(this.animMgr.currentStrokes);
+                this.animMgr.addStroke(stroke);
             } else {
-                // Taper mode: rewind preview circles and redraw with position-based taper.
-                this.instanceCount -= totalPoints;
-                const startIndex = this.instanceCount;
-
-                for (let i = 0; i < totalPoints; i++) {
+                this.instanceCount -= total;
+                const taperPct = 0.15;
+                for (let i = 0; i < total; i++) {
                     let t = 1;
-                    if (i < totalPoints * taperPercent)
-                        t = i / (totalPoints * taperPercent);
-                    else if (i > totalPoints * (1 - taperPercent))
-                        t = (totalPoints - i) / (totalPoints * taperPercent);
+                    if (i < total * taperPct)          t = i / (total * taperPct);
+                    else if (i > total * (1 - taperPct)) t = (total - i) / (total * taperPct);
                     t = Math.max(0, Math.min(1, t));
-                    const radius = this.minRadius + (this.maxRadius - this.minRadius) * t;
+                    const r = this.minRadius + (this.maxRadius - this.minRadius) * t;
                     const [x, y] = this.currentStrokePoints[i];
-                    this.drawCircle(x, y, brushColor, radius);
-                    radii.push(radius);
+                    this.pushInstance(x, y, brushColor, r, 1.0);
+                    radii.push(r);
                 }
-
-                const endIndex = this.instanceCount - 1;
-                this.strokes.push(new Stroke(
-                    this.currentStrokePoints.map(p => [p[0], p[1]]),
-                    radii,
-                    brushColor,
-                    startIndex,
-                    endIndex
-                ));
+                this.flushLast(total);
+                const stroke: IStroke = {
+                    points: this.currentStrokePoints.map(p => [p[0], p[1]]),
+                    radii, color: [...brushColor],
+                };
+                this.historyMgr.save(this.animMgr.currentStrokes);
+                this.animMgr.addStroke(stroke);
             }
-
             this.currentStrokePoints = [];
         }
 
-
+        // Erasing
         if (erasing && drawing) {
-            for (let i = 0; i < this.strokes.length; i++) {
-                const stroke = this.strokes[i];
-                if (stroke.isPointOnStroke(drawX, drawY)) {
-                    this.historyMgr.save(this.strokes);
-                    const count = stroke.meshEndIndex - stroke.meshStartIndex + 1;
-
-                    // Erase by setting radius to 0
-                    for (let j = 0; j < count; j++) {
-                        const idx = (stroke.meshStartIndex + j) * 6;
-                        this.instanceData[idx + 5] = 0; // radius = 0
-                    }
-                    this.updateInstanceBufferRange(stroke.meshStartIndex, count);
-
-                    this.strokes.splice(i, 1);
+            const strokes = this.animMgr.currentStrokes;
+            for (let i = 0; i < strokes.length; i++) {
+                if (this.isPointOnStroke(strokes[i], drawX, drawY)) {
+                    this.historyMgr.save(strokes);
+                    const next = [...strokes];
+                    next.splice(i, 1);
+                    this.animMgr.setLayerStrokes(next);
+                    this.loadFrame();
                     break;
                 }
             }
         }
     }
 
-    private drawCircle(x: number, y: number, rgb: number[], radius = this.defaultBrushSize) {
-        if (this.instanceCount >= this.maxInstances) return; // Prevent overflow
+    applyUndoRedo(strokes: IStroke[]) {
+        this.animMgr.setLayerStrokes(strokes);
+        this.loadFrame();
+    }
 
-        const idx = this.instanceCount * 6;
-        this.instanceData[idx] = x;
+    // ── Rendering ──────────────────────────────────────────────────────────────
+
+    render(pass: GPURenderPassEncoder, pipeline: GPURenderPipeline, bindGroup: GPUBindGroup, showOnion: boolean) {
+        if (showOnion && this.onionCount > 0) {
+            pass.setPipeline(pipeline);
+            pass.setVertexBuffer(0, this.circleMesh.buffer);
+            pass.setVertexBuffer(1, this.onionBuffer);
+            pass.setBindGroup(0, bindGroup);
+            pass.draw(66, this.onionCount, 0, 0);
+        }
+        if (this.instanceCount > 0) {
+            pass.setPipeline(pipeline);
+            pass.setVertexBuffer(0, this.circleMesh.buffer);
+            pass.setVertexBuffer(1, this.instanceBuffer);
+            pass.setBindGroup(0, bindGroup);
+            pass.draw(66, this.instanceCount, 0, 0);
+        }
+    }
+
+    // ── Private helpers ────────────────────────────────────────────────────────
+
+    private pushInstance(x: number, y: number, rgb: number[], radius: number, alpha: number) {
+        if (this.instanceCount >= this.maxInstances) return;
+        const idx = this.instanceCount * FLOATS_PER_INSTANCE;
+        this.instanceData[idx]     = x;
         this.instanceData[idx + 1] = y;
         this.instanceData[idx + 2] = rgb[0];
         this.instanceData[idx + 3] = rgb[1];
         this.instanceData[idx + 4] = rgb[2];
         this.instanceData[idx + 5] = radius;
-        
-        this.updateInstanceBufferRange(this.instanceCount, 1);
+        this.instanceData[idx + 6] = alpha;
         this.instanceCount++;
     }
 
-    private updateInstanceBufferRange(startIndex: number, count: number) {
-        const offset = startIndex * 24; // 6 floats * 4 bytes
-        const data = this.instanceData.subarray(startIndex * 6, (startIndex + count) * 6);
+    private pushOnionInstance(x: number, y: number, rgb: number[], radius: number) {
+        if (this.onionCount >= this.maxInstances) return;
+        const idx = this.onionCount * FLOATS_PER_INSTANCE;
+        this.onionData[idx]     = x;
+        this.onionData[idx + 1] = y;
+        this.onionData[idx + 2] = rgb[0];
+        this.onionData[idx + 3] = rgb[1];
+        this.onionData[idx + 4] = rgb[2];
+        this.onionData[idx + 5] = radius;
+        this.onionData[idx + 6] = 0.35;
+        this.onionCount++;
+    }
+
+    private flushInstanceBuffer() {
+        if (this.instanceCount === 0) return;
+        const slice = this.instanceData.subarray(0, this.instanceCount * FLOATS_PER_INSTANCE);
         this.contextMgr.device.queue.writeBuffer(
-            this.instanceBuffer,
-            offset,
-            data.buffer,
-            data.byteOffset,
-            data.byteLength
+            this.instanceBuffer, 0, slice.buffer, slice.byteOffset, slice.byteLength
         );
     }
 
-    render(pass: GPURenderPassEncoder, pipeline: GPURenderPipeline, bindGroup: GPUBindGroup) {
-        if (this.instanceCount === 0) return;
-        
-        pass.setPipeline(pipeline);
-        pass.setVertexBuffer(0, this.circleMesh.buffer);
-        pass.setVertexBuffer(1, this.instanceBuffer);
-        pass.setBindGroup(0, bindGroup);
-        // 66 vertices per circle
-        pass.draw(66, this.instanceCount, 0, 0);
-
-        const strokeCountElem = document.getElementById("strokes");
-        if (strokeCountElem) strokeCountElem.innerText = this.strokes.length.toString();
+    private flushLast(count: number) {
+        const start = Math.max(0, this.instanceCount - count);
+        const slice = this.instanceData.subarray(
+            start * FLOATS_PER_INSTANCE,
+            this.instanceCount * FLOATS_PER_INSTANCE
+        );
+        this.contextMgr.device.queue.writeBuffer(
+            this.instanceBuffer,
+            start * BYTES_PER_INSTANCE,
+            slice.buffer, slice.byteOffset, slice.byteLength
+        );
     }
 
-    applyStrokes(newStrokes: Stroke[]) {
-        this.strokes = newStrokes;
-        this.rebuildMeshes();
-    }
-
-    private rebuildMeshes() {
-        this.instanceCount = 0;
-        for (const stroke of this.strokes) {
-            stroke.meshStartIndex = this.instanceCount;
-            for (let i = 0; i < stroke.points.length; i++) {
-                const [x, y] = stroke.points[i];
-                const radius = stroke.radii[i];
-                this.drawCircle(x, y, stroke.color, radius);
-            }
-            stroke.meshEndIndex = this.instanceCount - 1;
+    private isPointOnStroke(stroke: IStroke, x: number, y: number): boolean {
+        for (let i = 0; i < stroke.points.length; i++) {
+            const [px, py] = stroke.points[i];
+            const r  = stroke.radii[i] ?? 0.05;
+            const dx = x - px, dy = y - py;
+            if (dx * dx + dy * dy < (r + 0.05) ** 2) return true;
         }
+        return false;
     }
 }

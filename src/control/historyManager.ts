@@ -1,24 +1,36 @@
-import { Stroke } from "../graphics/stroke";
+import { IStroke } from "../types/animationTypes";
 
 export class HistoryManager {
-    private undoStack: Stroke[][] = [];
-    private redoStack: Stroke[][] = [];
+    private undoStack: IStroke[][] = [];
+    private redoStack: IStroke[][] = [];
 
-    save(strokes: Stroke[]) {
-        const snapshot = strokes.map(s => s.clone());
+    save(strokes: IStroke[]) {
+        const snapshot = strokes.map(s => ({
+            points: s.points.map(p => [...p]),
+            radii:  [...s.radii],
+            color:  [...s.color],
+        }));
         this.undoStack.push(snapshot);
         this.redoStack = [];
     }
 
-    undo(currentStrokes: Stroke[]): Stroke[] | null {
-        if (this.undoStack.length === 0) return null;
-        this.redoStack.push(currentStrokes.map(s => s.clone()));
+    undo(current: IStroke[]): IStroke[] | null {
+        if (!this.undoStack.length) return null;
+        this.redoStack.push(current.map(s => ({
+            points: s.points.map(p => [...p]),
+            radii:  [...s.radii],
+            color:  [...s.color],
+        })));
         return this.undoStack.pop()!;
     }
 
-    redo(currentStrokes: Stroke[]): Stroke[] | null {
-        if (this.redoStack.length === 0) return null;
-        this.undoStack.push(currentStrokes.map(s => s.clone()));
+    redo(current: IStroke[]): IStroke[] | null {
+        if (!this.redoStack.length) return null;
+        this.undoStack.push(current.map(s => ({
+            points: s.points.map(p => [...p]),
+            radii:  [...s.radii],
+            color:  [...s.color],
+        })));
         return this.redoStack.pop()!;
     }
 

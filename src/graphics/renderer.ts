@@ -55,21 +55,23 @@ export class Renderer {
         mouseX: number, mouseY: number,
         drawX: number, drawY: number,
         lastDrawX: number | null, lastDrawY: number | null,
-        erasing: boolean,
+        evaporating: boolean,
+        trueErasing: boolean,
         brushSize  = 0.12,
         brushColor = [0.2, 0.2, 0.2],
         pressure   = 1.0,
         usePenPressure = false,
         pressureCurve  = 0.8,
-        showOnion = false
+        showOnion = false,
+        hideCursor = false
     ) {
         if (panning) this.camera.pan(mouseX, mouseY);
 
         this.strokeMgr.update(
-            drawing, erasing, drawX, drawY, lastDrawX, lastDrawY,
+            drawing, evaporating, trueErasing, drawX, drawY, lastDrawX, lastDrawY,
             brushSize, brushColor, pressure, usePenPressure, pressureCurve
         );
-        this.cursorRenderer.update(drawX, drawY, erasing, brushSize + 0.02);
+        this.cursorRenderer.update(drawX, drawY, evaporating || trueErasing, brushSize + 0.02);
 
         const projection = mat4.create();
         mat4.perspective(projection, Math.PI / 4, this.canvas.width / this.canvas.height, 0.001, 1000);
@@ -90,8 +92,8 @@ export class Renderer {
             }],
         });
 
-        this.strokeMgr.render(pass, this.contextMgr.pipeline, this.contextMgr.bindGroup, showOnion);
-        this.cursorRenderer.render(pass, this.contextMgr.pipeline, this.contextMgr.bindGroup, !panning);
+        this.strokeMgr.render(pass, this.contextMgr, showOnion, trueErasing);
+        this.cursorRenderer.render(pass, this.contextMgr.pipeline, this.contextMgr.bindGroup, !panning && !hideCursor);
 
         pass.end();
         device.queue.submit([encoder.finish()]);

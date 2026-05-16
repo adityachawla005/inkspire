@@ -1,12 +1,16 @@
 import { Renderer } from "../graphics/renderer";
 import { InputManager } from "../core/inputManager";
 import { AnimationManager } from "./animationManager";
+import { Exporter } from "../core/exporter";
+import { AudioManager } from "../core/audioManager";
 
 export class App {
     canvas: HTMLCanvasElement;
     renderer: Renderer;
     input: InputManager;
     animMgr: AnimationManager;
+    exporter!: Exporter;
+    audioMgr!: AudioManager;
 
     lastDrawX: number | null = null;
     lastDrawY: number | null = null;
@@ -15,8 +19,8 @@ export class App {
     zoomLevel = 10;
 
     // Canvas transform (free positioning)
-    private canvasX     = 0;
-    private canvasY     = 0;
+    private canvasX = 0;
+    private canvasY = 0;
     private canvasAngle = 0;
     private canvasScale = 1.0;
 
@@ -31,18 +35,36 @@ export class App {
         this.animMgr = new AnimationManager();
         this.renderer = new Renderer(canvas, this.animMgr);
         this.input = new InputManager(canvas, this.animMgr);
+        this.exporter = new Exporter(this.animMgr, this.renderer, canvas);
+        this.audioMgr = new AudioManager();
         this.renderer.camera.position[0] = this.zoomLevel;
     }
 
     async initialize() {
-        // Try restoring last session
-        const restored = this.animMgr.loadSession();
-        if (restored) console.log("Session restored from localStorage");
+        // Block until splash screen is resolved
+        await new Promise<void>(resolve => {
+            const screen = document.getElementById("splash-screen");
+            if (!screen) return resolve();
+
+            document.getElementById("splash-new")?.addEventListener("click", () => {
+                this.animMgr.clearSession();
+                screen.remove();
+                document.documentElement.requestFullscreen().catch(() => { });
+                resolve();
+            });
+            document.getElementById("splash-continue")?.addEventListener("click", () => {
+                const restored = this.animMgr.loadSession();
+                if (restored) console.log("Session restored from localStorage");
+                screen.remove();
+                document.documentElement.requestFullscreen().catch(() => { });
+                resolve();
+            });
+        });
 
         await this.renderer.initialize();
         this.renderer.strokeMgr.loadFrame();
 
-        // Wire undo / redo via keyboard
+        // Wire undo / redo / navigation via keyboard
         window.addEventListener("keydown", (e) => {
             if (e.ctrlKey && e.key === "z") {
                 e.preventDefault();
@@ -54,6 +76,15 @@ export class App {
                 const next = this.renderer.strokeMgr.historyMgr.redo(this.animMgr.currentStrokes);
                 if (next) this.renderer.strokeMgr.applyUndoRedo(next);
             }
+            // Arrow navigation
+            if (!e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "ArrowLeft") {
+                e.preventDefault();
+                this.goToFrame(Math.max(0, this.animMgr.currentFrameIndex - 1));
+            }
+            if (!e.ctrlKey && !e.shiftKey && !e.altKey && e.code === "ArrowRight") {
+                e.preventDefault();
+                this.goToFrame(Math.min(this.animMgr.frameCount - 1, this.animMgr.currentFrameIndex + 1));
+            }
         });
 
         // Wire AnimationManager change events (frame/layer add/remove)
@@ -64,10 +95,58 @@ export class App {
             this.updateLayerUI();
         };
 
+        this.initResizers();
         this.initCanvasTransform();
         this.buildUI();
         this.updateTimelineUI();
         this.updateLayerUI();
+    }
+
+    // ── UI Panel Resizers ────────────────────────────────────────────────────
+
+    private initResizers() {
+        const bindResizer = (resizerId: string, panelId: string, isHoriz: boolean, isLeftOrTop: boolean) => {
+            const resizer = document.getElementById(resizerId);
+            const panel = document.getElementById(panelId);
+            if (!resizer || !panel) return;
+
+            let isDragging = false;
+            let startPos = 0;
+            let startSize = 0;
+
+            resizer.addEventListener("pointerdown", (e) => {
+                isDragging = true;
+                startPos = isHoriz ? e.clientY : e.clientX;
+                startSize = isHoriz ? panel.offsetHeight : panel.offsetWidth;
+                resizer.setPointerCapture(e.pointerId);
+            });
+
+            resizer.addEventListener("pointermove", (e) => {
+                if (!isDragging) return;
+                const currentPos = isHoriz ? e.clientY : e.clientX;
+                const delta = isLeftOrTop ? (currentPos - startPos) : (startPos - currentPos);
+                let newSize = Math.max(0, startSize + delta);
+
+                // Collapse if too small
+                if (newSize < 50) newSize = 0;
+
+                if (isHoriz) {
+                    panel.style.flex = `0 0 ${newSize}px`;
+                    panel.style.height = `${newSize}px`;
+                } else {
+                    panel.style.flex = `0 0 ${newSize}px`;
+                    panel.style.width = `${newSize}px`;
+                }
+            });
+
+            resizer.addEventListener("pointerup", (e) => {
+                isDragging = false;
+                resizer.releasePointerCapture(e.pointerId);
+            });
+        };
+
+        bindResizer("resizer-layers", "layers-panel", false, true); // vertical, left
+        bindResizer("resizer-brush", "brush-panel", false, false);  // vertical, right
     }
 
     // ── Canvas free transform ────────────────────────────────────────────────
@@ -78,7 +157,7 @@ export class App {
             const area = document.getElementById("canvas-area");
             if (area) {
                 const r = area.getBoundingClientRect();
-                this.canvasX = (r.width  - 800) / 2;
+                this.canvasX = (r.width - 800) / 2;
                 this.canvasY = (r.height - 600) / 2;
             }
             this.applyCanvasTransform();
@@ -144,7 +223,7 @@ export class App {
         const area = document.getElementById("canvas-area");
         if (area) {
             const r = area.getBoundingClientRect();
-            this.canvasX = (r.width  - 800) / 2;
+            this.canvasX = (r.width - 800) / 2;
             this.canvasY = (r.height - 600) / 2;
         }
         this.canvasAngle = 0;
@@ -156,8 +235,8 @@ export class App {
     private applyCanvasTransform() {
         const shadow = document.getElementById("canvas-shadow") as HTMLElement | null;
         if (!shadow) return;
-        shadow.style.left      = `${this.canvasX}px`;
-        shadow.style.top       = `${this.canvasY}px`;
+        shadow.style.left = `${this.canvasX}px`;
+        shadow.style.top = `${this.canvasY}px`;
         shadow.style.transform = `rotate(${this.canvasAngle}deg) scale(${this.canvasScale})`;
     }
 
@@ -170,13 +249,13 @@ export class App {
         const alpha = i.smoothingWeight;
 
         // Zoom
-        if (i.zoomIn  && this.zoomLevel > 1.5) this.zoomLevel -= 0.5;
+        if (i.zoomIn && this.zoomLevel > 1.5) this.zoomLevel -= 0.5;
         if (i.zoomOut) this.zoomLevel += 0.5;
         this.renderer.camera.position[0] = this.zoomLevel;
         this.renderer.camera.update();
 
         // Project NDC → world space
-        const fovy   = Math.PI / 4;
+        const fovy = Math.PI / 4;
         const aspect = this.canvas.width / this.canvas.height;
         const p11 = 1 / Math.tan(fovy / 2);
         const p00 = p11 / aspect;
@@ -200,7 +279,7 @@ export class App {
             i.mouseX, i.mouseY,
             this.smoothedX, this.smoothedY,
             this.lastDrawX, this.lastDrawY,
-            i.isErasing,
+            i.isEvaporating, i.isTrueErasing,
             i.brushSize, i.brushColor,
             i.pressure, i.usePenPressure, i.pressureCurve,
             this.showOnion
@@ -225,8 +304,15 @@ export class App {
         if (this.isPlaying) return;
         this.isPlaying = true;
         const fps = this.animMgr.animation.fps;
+
+        this.audioMgr.play(fps, this.animMgr.currentFrameIndex);
+
         this.playInterval = window.setInterval(() => {
             const next = (this.animMgr.currentFrameIndex + 1) % this.animMgr.frameCount;
+            if (next === 0) {
+                // Restart audio on loop
+                this.audioMgr.play(fps, 0);
+            }
             this.goToFrame(next, false);
             this.renderPlayback();
         }, 1000 / fps);
@@ -239,6 +325,9 @@ export class App {
         this.isPlaying = false;
         if (this.playInterval !== null) clearInterval(this.playInterval);
         this.playInterval = null;
+
+        this.audioMgr.stop();
+
         const btn = document.getElementById("play-btn");
         if (btn) btn.textContent = "▶ play";
         requestAnimationFrame(this.run);
@@ -246,7 +335,7 @@ export class App {
 
     private renderPlayback() {
         this.renderer.render(
-            false, false, 0, 0, 0, 0, null, null, false,
+            false, false, 0, 0, 0, 0, null, null, false, false,
             this.input.brushSize, this.input.brushColor,
             1.0, false, 1.0, false
         );
@@ -260,67 +349,44 @@ export class App {
         if (this.showOnion) this.renderer.strokeMgr.loadOnionSkins();
         this.lastDrawX = null;
         this.lastDrawY = null;
+
+        if (!this.isPlaying) {
+            this.audioMgr.scrubToFrame(index, this.animMgr.animation.fps);
+        }
+
         if (updateUI) this.updateTimelineUI();
     }
 
     // ─── Export ────────────────────────────────────────────────────────────────
 
     async exportFrames() {
-        const savedIndex = this.animMgr.currentFrameIndex;
-        const fps = this.animMgr.animation.fps;
-        const links: HTMLAnchorElement[] = [];
+        const modal = document.getElementById("export-modal");
+        if (modal) modal.classList.remove("hidden");
+    }
 
-        for (let fi = 0; fi < this.animMgr.frameCount; fi++) {
-            this.goToFrame(fi, false);
-            // Give GPU a frame to render
-            this.renderPlayback();
-            await new Promise(r => requestAnimationFrame(r));
-            this.renderPlayback();
-            await new Promise(r => requestAnimationFrame(r));
+    private setupExportModal() {
+        const modal = document.getElementById("export-modal");
+        const close = document.getElementById("exp-close");
+        if (!modal || !close) return;
 
-            const num = String(fi + 1).padStart(3, "0");
-            const url = this.canvas.toDataURL("image/png");
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = `frame_${num}.png`;
-            links.push(a);
-        }
+        close.addEventListener("click", () => modal.classList.add("hidden"));
 
-        // Download all frames sequentially
-        for (const a of links) {
-            a.click();
-            await new Promise(r => setTimeout(r, 80));
-        }
-
-        // Generate ffmpeg batch script
-        const bat = [
-            "@echo off",
-            "REM Generated by Inkspire",
-            `set FFMPEG=D:\\ffmpeg\\ffmpeg\\bin\\ffmpeg.exe`,
-            `set FPS=${fps}`,
-            `set INPUT=frame_%%03d.png`,
-            "",
-            "REM --- MP4 export ---",
-            `%FFMPEG% -framerate %FPS% -i %INPUT% -c:v libx264 -pix_fmt yuv420p output.mp4`,
-            "",
-            "REM --- GIF export ---",
-            `%FFMPEG% -framerate %FPS% -i %INPUT% -vf "palettegen" palette.png`,
-            `%FFMPEG% -framerate %FPS% -i %INPUT% -i palette.png -filter_complex "paletteuse" output.gif`,
-            "",
-            "echo Done! output.mp4 and output.gif created.",
-            "pause",
-        ].join("\r\n");
-
-        const batBlob = new Blob([bat], { type: "text/plain" });
-        const batUrl  = URL.createObjectURL(batBlob);
-        const batLink = document.createElement("a");
-        batLink.href = batUrl;
-        batLink.download = "export.bat";
-        batLink.click();
-        URL.revokeObjectURL(batUrl);
-
-        // Restore
-        this.goToFrame(savedIndex, true);
+        document.getElementById("exp-mp4")?.addEventListener("click", () => {
+            modal.classList.add("hidden");
+            this.exporter.exportMP4();
+        });
+        document.getElementById("exp-gif")?.addEventListener("click", () => {
+            modal.classList.add("hidden");
+            this.exporter.exportGIF();
+        });
+        document.getElementById("exp-frame")?.addEventListener("click", () => {
+            modal.classList.add("hidden");
+            this.exporter.exportCurrentFrame();
+        });
+        document.getElementById("exp-zip")?.addEventListener("click", () => {
+            modal.classList.add("hidden");
+            this.exporter.exportZIP();
+        });
     }
 
     // ─── UI building ───────────────────────────────────────────────────────────
@@ -379,12 +445,12 @@ export class App {
         // Brush panel onion toggle div — inline script already handles .on class;
         // we read the state after it toggles via microtask
         document.getElementById("onion-toggle")?.addEventListener("click", () => {
-            Promise.resolve().then(() => {
+            setTimeout(() => {
                 const isOn = document.getElementById("onion-toggle")?.classList.contains("on") ?? false;
                 this.showOnion = isOn;
                 document.getElementById("onion-btn")?.classList.toggle("active", this.showOnion);
                 if (this.showOnion) this.renderer.strokeMgr.loadOnionSkins();
-            });
+            }, 0);
         });
 
         // Add layer
@@ -422,16 +488,52 @@ export class App {
         });
 
         document.getElementById("export-btn")!.addEventListener("click", () => this.exportFrames());
+        this.setupExportModal();
 
-        // Screenshot (current frame only)
-        document.addEventListener("keydown", (e) => {
-            if (e.code === "Enter") {
-                const url = this.canvas.toDataURL("image/png");
-                const a = document.createElement("a");
-                a.href = url;
-                a.download = `inkspire_frame_${this.animMgr.currentFrameIndex + 1}.png`;
-                a.click();
+        document.getElementById("load-audio-btn")?.addEventListener("click", () => {
+            const input = document.createElement("input");
+            input.type = "file";
+            input.accept = "audio/*";
+            input.onchange = async () => {
+                if (input.files?.[0]) {
+                    await this.audioMgr.loadAudio(input.files[0]);
+                    this.updateTimelineUI(); // Re-render to size waveform properly
+                }
+            };
+            input.click();
+        });
+
+        this.initTimelineEvents();
+    }
+
+    private initTimelineEvents() {
+        const strip = document.getElementById("timeline")!;
+        let isScrubbing = false;
+
+        const handleScrub = (e: PointerEvent) => {
+            const rect = strip.getBoundingClientRect();
+            const x = e.clientX - rect.left + strip.scrollLeft;
+            // First cell is "Add Frame" (44px + 3px gap)
+            const frameIndex = Math.floor((x - 47) / 47);
+            if (frameIndex >= 0 && frameIndex < this.animMgr.frameCount) {
+                this.goToFrame(frameIndex);
             }
+        };
+
+        strip.addEventListener("pointerdown", (e) => {
+            if ((e.target as HTMLElement).id === "add-frame-btn-tl") return;
+            isScrubbing = true;
+            handleScrub(e);
+            strip.setPointerCapture(e.pointerId);
+        });
+
+        strip.addEventListener("pointermove", (e) => {
+            if (isScrubbing) handleScrub(e);
+        });
+
+        strip.addEventListener("pointerup", (e) => {
+            isScrubbing = false;
+            strip.releasePointerCapture(e.pointerId);
         });
     }
 
@@ -465,6 +567,11 @@ export class App {
 
         const frameLabel = document.getElementById("frame-label");
         if (frameLabel) frameLabel.textContent = `${this.animMgr.currentFrameIndex + 1} / ${this.animMgr.frameCount}`;
+
+        // The inline script in index.html handles scrubber ticks + audio grid via MutationObserver.
+        // Just scroll the active frame into view.
+        const activeCell = strip.querySelector(".frame-cell.active") as HTMLElement | null;
+        activeCell?.scrollIntoView({ block: "nearest", inline: "nearest" });
     }
 
     private showFrameContextMenu(e: MouseEvent, fi: number) {
@@ -477,9 +584,9 @@ export class App {
             background:#1e1e2e;border:1px solid #3a3a5a;border-radius:6px;padding:4px 0;z-index:9999;`;
 
         const items = [
-            ["Insert after",  () => { this.animMgr.addFrame(fi); this.updateTimelineUI(); }],
-            ["Duplicate",     () => { this.animMgr.duplicateFrame(fi); this.updateTimelineUI(); }],
-            ["Delete",        () => { this.animMgr.deleteFrame(fi); this.goToFrame(this.animMgr.currentFrameIndex); }],
+            ["Insert after", () => { this.animMgr.addFrame(fi); this.updateTimelineUI(); }],
+            ["Duplicate", () => { this.animMgr.duplicateFrame(fi); this.updateTimelineUI(); }],
+            ["Delete", () => { this.animMgr.deleteFrame(fi); this.goToFrame(this.animMgr.currentFrameIndex); }],
         ] as [string, () => void][];
 
         for (const [label, action] of items) {

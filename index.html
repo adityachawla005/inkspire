@@ -1,151 +1,357 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8"/>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>inkspire</title>
   <link rel="stylesheet" href="style.css">
 </head>
+
 <body>
-<div id="app">
+  <div id="app">
 
-  <!-- TOOLBAR -->
-  <div id="toolbar">
-    <span class="brand">inkspire</span>
-    <div class="toolbar-spacer"></div>
-    <div class="tool-group">
-      <button class="tbtn" id="save-btn">save</button>
-      <button class="tbtn" id="load-btn">open</button>
-      <button class="tbtn accent" id="export-btn">export ↗</button>
+    <!-- TOOLBAR -->
+    <div id="toolbar">
+      <span class="brand">inkspire</span>
+      <div class="toolbar-spacer"></div>
+      <div class="tool-group">
+        <button class="tbtn" id="save-btn">save</button>
+        <button class="tbtn" id="load-btn">open</button>
+        <button class="tbtn accent" id="export-btn">export ↗</button>
+      </div>
     </div>
+
+    <!-- WORKSPACE -->
+    <div id="workspace">
+
+      <!-- Layers panel -->
+      <div id="layers-panel">
+        <div class="panel-head">
+          <span class="panel-head-label">layers</span>
+          <button class="smbtn" id="add-layer-btn" title="add layer">+</button>
+        </div>
+        <div id="layer-list"></div>
+      </div>
+      <div class="resizer v-resizer" id="resizer-layers"></div>
+
+      <!-- Canvas area — canvas floats inside here -->
+      <div id="canvas-area">
+        <div id="canvas-wrap">
+          <div id="canvas-shadow">
+            <canvas id="gfx-main" width="800" height="600"></canvas>
+          </div>
+        </div>
+        <!-- Hotkey hint -->
+        <div id="hotkey-hint">G drag · R drag · Shift+/- scale · Home reset</div>
+      </div>
+
+      <div class="resizer v-resizer" id="resizer-brush"></div>
+
+      <!-- Brush panel -->
+      <div id="brush-panel">
+        <div class="panel-head">
+          <span class="panel-head-label">brush</span>
+        </div>
+        <div id="brush-scroll">
+
+          <div class="color-zone">
+            <input type="color" id="color-picker" value="#1c1814" title="color" />
+            <div class="swatch-row" id="swatch-row"></div>
+          </div>
+
+          <div class="bsection">
+            <span class="bsection-title">stroke</span>
+            <div class="bctrl">
+              <div class="bctrl-row">
+                <span class="bctrl-name">size</span>
+                <span class="bctrl-val" id="brush-size-val">8%</span>
+              </div>
+              <input type="range" id="brush-size-slider" min="0.01" max="1.5" step="0.01" value="0.12">
+            </div>
+            <div class="bctrl">
+              <div class="bctrl-row">
+                <span class="bctrl-name">smooth</span>
+                <span class="bctrl-val" id="smoothing-val">70%</span>
+              </div>
+              <input type="range" id="smoothing-slider" min="0.01" max="1.0" step="0.01" value="0.7">
+            </div>
+          </div>
+
+          <div class="bsection">
+            <span class="bsection-title">pressure</span>
+            <div class="btoggle-row">
+              <span class="btoggle-label">enabled</span>
+              <div class="toggle on" id="pressure-toggle" role="switch" aria-checked="true"></div>
+            </div>
+            <div class="bctrl">
+              <div class="bctrl-row">
+                <span class="bctrl-name">curve</span>
+                <span class="bctrl-val" id="pressure-curve-val">0.8</span>
+              </div>
+              <input type="range" id="pressure-curve-slider" min="0.2" max="4.0" step="0.1" value="0.8">
+            </div>
+          </div>
+
+          <div class="bsection">
+            <span class="bsection-title">onion skin</span>
+            <div class="btoggle-row">
+              <span class="btoggle-label">visible</span>
+              <div class="toggle" id="onion-toggle" role="switch" aria-checked="false"></div>
+            </div>
+            <div class="bctrl">
+              <div class="bctrl-row">
+                <span class="bctrl-name">opacity</span>
+                <span class="bctrl-val" id="onion-opacity-val">30%</span>
+              </div>
+              <input type="range" id="onion-opacity-slider" min="1" max="100" step="1" value="30">
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <!-- BOTTOM -->
+    <div id="bottom">
+      <div id="anim-controls">
+        <button class="abtn" id="prev-frame-btn">‹</button>
+        <button class="abtn" id="play-btn">▶ play</button>
+        <button class="abtn" id="next-frame-btn">›</button>
+        <div class="asep"></div>
+        <label class="fps-wrap">fps <input type="number" id="fps-input" min="1" max="60" value="12" /></label>
+        <div class="asep"></div>
+        <button class="abtn" id="dup-frame-btn">dup</button>
+        <button class="abtn" id="del-frame-btn">del</button>
+        <div class="asep"></div>
+        <button class="abtn" id="onion-btn">onion</button>
+        <span class="frame-counter" id="frame-label">1 / 1</span>
+      </div>
+      <div id="timeline-wrapper">
+        <!-- Scrubber rail: dots per frame, scroll-synced -->
+        <div id="scrubber-rail">
+          <div id="scrubber-rail-inner">
+            <!-- .scrubber-tick divs injected by JS -->
+          </div>
+        </div>
+        <!-- Frame strip — has real scrollbar -->
+        <div id="timeline">
+          <!-- frame-cells + add button injected by JS -->
+        </div>
+        <!-- Audio track aligned to audio duration × fps -->
+        <div id="audio-track">
+          <div class="track-label">
+            audio <button class="smbtn" id="load-audio-btn">+</button>
+          </div>
+          <div id="audio-scroll">
+            <div id="audio-inner">
+              <canvas id="audio-waveform-canvas"></canvas>
+              <canvas id="audio-grid"></canvas>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- HIDDEN INPUTS -->
+    <input type="file" id="audio-input" accept="audio/*" style="display:none">
+
+    <!-- SPLASH SCREEN -->
+    <div id="splash-screen">
+      <div class="splash-content">
+        <h1>inkspire</h1>
+        <p>A minimalist animation tool</p>
+        <div class="splash-buttons">
+          <button class="sbtn" id="splash-new">Start Fresh</button>
+          <button class="sbtn" id="splash-continue">Continue Previous</button>
+        </div>
+        <p class="splash-hint">Press F11 for Fullscreen Experience</p>
+      </div>
+    </div>
+
+    <!-- EXPORT MODAL -->
+    <div id="export-modal" class="modal hidden">
+      <div class="modal-content">
+        <h2>Export Animation</h2>
+        <div class="modal-buttons">
+          <button class="mbtn" id="exp-mp4">MP4 Video</button>
+          <button class="mbtn" id="exp-gif">GIF Animation</button>
+          <button class="mbtn" id="exp-frame">Current Frame (PNG)</button>
+          <button class="mbtn" id="exp-zip">All Frames (ZIP)</button>
+        </div>
+        <button class="mbtn-close" id="exp-close">cancel</button>
+      </div>
+    </div>
+
+    <!-- PROGRESS MODAL -->
+    <div id="export-progress" class="modal hidden">
+      <div class="modal-content">
+        <h2>Exporting...</h2>
+        <p>Please wait, compiling frames.</p>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="exp-progress-fill"></div>
+        </div>
+      </div>
+    </div>
+
   </div>
 
-  <!-- WORKSPACE -->
-  <div id="workspace">
-
-    <!-- Layers panel -->
-    <div id="layers-panel">
-      <div class="panel-head">
-        <span class="panel-head-label">layers</span>
-        <button class="smbtn" id="add-layer-btn" title="add layer">+</button>
-      </div>
-      <div id="layer-list"></div>
-    </div>
-
-    <!-- Canvas area — canvas floats inside here -->
-    <div id="canvas-area">
-      <div id="canvas-wrap">
-        <div id="canvas-shadow">
-          <canvas id="gfx-main" width="800" height="600"></canvas>
-        </div>
-      </div>
-      <!-- Hotkey hint -->
-      <div id="hotkey-hint">G drag · R drag · Shift+/- scale · Home reset</div>
-    </div>
-
-    <!-- Brush panel -->
-    <div id="brush-panel">
-      <div class="panel-head">
-        <span class="panel-head-label">brush</span>
-      </div>
-      <div id="brush-scroll">
-
-        <div class="color-zone">
-          <input type="color" id="color-picker" value="#1c1814" title="color"/>
-          <div class="swatch-row" id="swatch-row"></div>
-        </div>
-
-        <div class="bsection">
-          <span class="bsection-title">stroke</span>
-          <div class="bctrl">
-            <div class="bctrl-row">
-              <span class="bctrl-name">size</span>
-              <span class="bctrl-val" id="brush-size-val">8%</span>
-            </div>
-            <input type="range" id="brush-size-slider" min="0.01" max="1.5" step="0.01" value="0.12">
-          </div>
-          <div class="bctrl">
-            <div class="bctrl-row">
-              <span class="bctrl-name">smooth</span>
-              <span class="bctrl-val" id="smoothing-val">70%</span>
-            </div>
-            <input type="range" id="smoothing-slider" min="0.01" max="1.0" step="0.01" value="0.7">
-          </div>
-        </div>
-
-        <div class="bsection">
-          <span class="bsection-title">pressure</span>
-          <div class="btoggle-row">
-            <span class="btoggle-label">enabled</span>
-            <div class="toggle on" id="pressure-toggle" role="switch" aria-checked="true"></div>
-          </div>
-          <div class="bctrl">
-            <div class="bctrl-row">
-              <span class="bctrl-name">curve</span>
-              <span class="bctrl-val" id="pressure-curve-val">0.8</span>
-            </div>
-            <input type="range" id="pressure-curve-slider" min="0.2" max="4.0" step="0.1" value="0.8">
-          </div>
-        </div>
-
-        <div class="bsection">
-          <span class="bsection-title">onion skin</span>
-          <div class="btoggle-row">
-            <span class="btoggle-label">visible</span>
-            <div class="toggle" id="onion-toggle" role="switch" aria-checked="false"></div>
-          </div>
-          <div class="bctrl">
-            <div class="bctrl-row">
-              <span class="bctrl-name">opacity</span>
-              <span class="bctrl-val" id="onion-opacity-val">30%</span>
-            </div>
-            <input type="range" id="onion-opacity-slider" min="1" max="100" step="1" value="30">
-          </div>
-        </div>
-
-      </div>
-    </div>
-  </div>
-
-  <!-- BOTTOM -->
-  <div id="bottom">
-    <div id="anim-controls">
-      <button class="abtn" id="prev-frame-btn">‹</button>
-      <button class="abtn" id="play-btn">▶ play</button>
-      <button class="abtn" id="next-frame-btn">›</button>
-      <div class="asep"></div>
-      <label class="fps-wrap">fps <input type="number" id="fps-input" min="1" max="60" value="12"/></label>
-      <div class="asep"></div>
-      <button class="abtn" id="dup-frame-btn">dup</button>
-      <button class="abtn" id="del-frame-btn">del</button>
-      <div class="asep"></div>
-      <button class="abtn" id="onion-btn">onion</button>
-      <span class="frame-counter" id="frame-label">1 / 1</span>
-    </div>
-    <div id="timeline"></div>
-  </div>
-
-</div>
-
-<script src="dist/main.js"></script>
-<script>
-  // Toggle divs
-  document.querySelectorAll('.toggle').forEach(tog => {
-    tog.addEventListener('click', () => {
-      tog.classList.toggle('on');
-      tog.setAttribute('aria-checked', tog.classList.contains('on'));
+  <script src="dist/main.js"></script>
+  <script>
+    // Toggle divs
+    document.querySelectorAll('.toggle').forEach(tog => {
+      tog.addEventListener('click', () => {
+        tog.classList.toggle('on');
+        tog.setAttribute('aria-checked', tog.classList.contains('on'));
+      });
     });
-  });
-  // Slider display
-  [
-    ['brush-size-slider','brush-size-val', v => Math.round(v*100/1.5)+'%'],
-    ['smoothing-slider','smoothing-val', v => Math.round(v*100)+'%'],
-    ['pressure-curve-slider','pressure-curve-val', v => parseFloat(v).toFixed(1)],
-    ['onion-opacity-slider','onion-opacity-val', v => v+'%'],
-  ].forEach(([s,o,f]) => {
-    const el = document.getElementById(s), out = document.getElementById(o);
-    if(el&&out) el.addEventListener('input',()=>{ out.textContent=f(el.value); });
-  });
-</script>
+    // Slider display
+    [
+      ['brush-size-slider', 'brush-size-val', v => Math.round(v * 100 / 1.5) + '%'],
+      ['smoothing-slider', 'smoothing-val', v => Math.round(v * 100) + '%'],
+      ['pressure-curve-slider', 'pressure-curve-val', v => parseFloat(v).toFixed(1)],
+      ['onion-opacity-slider', 'onion-opacity-val', v => v + '%'],
+    ].forEach(([s, o, f]) => {
+      const el = document.getElementById(s), out = document.getElementById(o);
+      if (el && out) el.addEventListener('input', () => { out.textContent = f(el.value); });
+    });
+
+    // ── Timeline scroll sync ──
+    // All three rows (scrubber-rail, timeline, audio-scroll) share the same
+    // scroll offset. The timeline's native scrollbar drives everything.
+
+    const CELL_W = 44;  // px per frame cell — must match CSS
+    const PAD = 12;  // left padding in timeline
+
+    const timeline = document.getElementById('timeline');
+    const railInner = document.getElementById('scrubber-rail-inner');
+
+    function syncScroll() {
+      const sl = timeline ? timeline.scrollLeft : 0;
+      if (railInner) railInner.style.transform = `translateX(-${sl}px)`;
+      // Sync audio scroll container's scrollLeft to match timeline
+      const audioScroll = document.getElementById('audio-scroll');
+      if (audioScroll) audioScroll.scrollLeft = sl;
+    }
+    if (timeline) timeline.addEventListener('scroll', syncScroll, { passive: true });
+
+    // ── Rebuild scrubber ticks whenever frame cells change ──
+    function rebuildScrubberTicks() {
+      if (!railInner || !timeline) return;
+      railInner.querySelectorAll('.scrubber-tick').forEach(t => t.remove());
+      const cells = timeline.querySelectorAll('.frame-cell');
+      const totalFrames = cells.length;
+      const railW = PAD + totalFrames * CELL_W + CELL_W;
+      railInner.style.width = railW + 'px';
+      cells.forEach((_, i) => {
+        const tick = document.createElement('div');
+        tick.className = 'scrubber-tick';
+        tick.style.left = (PAD + i * CELL_W + CELL_W / 2) + 'px';
+        railInner.appendChild(tick);
+      });
+      refreshAudioTrack();
+    }
+
+    window.inkspireAudio = window.inkspireAudio || {};
+
+    function refreshAudioTrack() {
+      const fpsInput = document.getElementById('fps-input');
+      const fps = fpsInput ? (parseFloat(fpsInput.value) || 12) : 12;
+      const duration = window.inkspireAudio.duration || 0;
+
+      const awc = document.getElementById('audio-waveform-canvas');
+      const agc = document.getElementById('audio-grid');
+      const aInner = document.getElementById('audio-inner');
+      if (!awc || !agc || !aInner) return;
+
+      const trackH = 28;
+
+      const audioFrames = duration > 0 ? Math.ceil(duration * fps) : 0;
+      const frameCells = timeline ? timeline.querySelectorAll('.frame-cell').length : 0;
+      // Always use at least frameCells wide so the grid is visible even without audio
+      const totalCols = Math.max(audioFrames, frameCells, 1);
+      const totalW = PAD + totalCols * CELL_W + CELL_W;
+
+      aInner.style.width = totalW + 'px';
+      aInner.style.minWidth = totalW + 'px';
+
+      awc.width = totalW; awc.height = trackH;
+      awc.style.width = totalW + 'px'; awc.style.height = trackH + 'px';
+
+      agc.width = totalW; agc.height = trackH;
+      agc.style.width = totalW + 'px'; agc.style.height = trackH + 'px';
+
+      if (window.inkspireAudio.peaks && duration > 0) {
+        drawWaveform(awc, window.inkspireAudio.peaks, totalW, trackH, audioFrames);
+      } else {
+        const ctx = awc.getContext('2d');
+        ctx.clearRect(0, 0, totalW, trackH);
+        // Draw a faint center line as placeholder
+        ctx.strokeStyle = 'rgba(180,168,160,0.25)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(PAD, trackH / 2 + 0.5);
+        ctx.lineTo(totalW, trackH / 2 + 0.5);
+        ctx.stroke();
+      }
+
+      drawAudioGrid(agc, totalCols, totalW, trackH);
+    }
+
+    function drawWaveform(canvas, peaks, totalW, h, audioFrames) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, totalW, h);
+
+      // peaks is a Float32Array of normalized [0..1] amplitude values
+      // Map them across audioFrames * CELL_W pixels starting at PAD
+      const drawW = audioFrames * CELL_W;
+      const midY = h / 2;
+      const barW = Math.max(1, drawW / peaks.length);
+
+      ctx.fillStyle = 'rgba(92,83,76,0.55)'; // --p6 tinted
+      for (let i = 0; i < peaks.length; i++) {
+        const x = PAD + (i / peaks.length) * drawW;
+        const barH = peaks[i] * (h * 0.85);
+        ctx.fillRect(x, midY - barH / 2, Math.max(1, barW - 0.5), barH);
+      }
+    }
+
+    function drawAudioGrid(canvas, totalCols, totalW, h) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, totalW, h);
+      ctx.strokeStyle = 'rgba(180,168,160,0.3)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= totalCols; i++) {
+        const x = PAD + i * CELL_W;
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, 0);
+        ctx.lineTo(x + 0.5, h);
+        ctx.stroke();
+      }
+    }
+
+    // Expose so your app can call after loading audio:
+    // window.inkspireAudio.duration = audioBuffer.duration;
+    // window.inkspireAudio.peaks    = computedPeaksFloat32Array;
+    // window.refreshAudioTrack();
+    window.refreshAudioTrack = refreshAudioTrack;
+    window.rebuildScrubberTicks = rebuildScrubberTicks;
+
+    // FPS change should refresh audio track layout
+    const fpsInput = document.getElementById('fps-input');
+    if (fpsInput) fpsInput.addEventListener('change', refreshAudioTrack);
+
+    // Observe timeline children for frame add/remove
+    const obs = new MutationObserver(rebuildScrubberTicks);
+    if (timeline) obs.observe(timeline, { childList: true });
+
+    // Initial build
+    document.addEventListener('DOMContentLoaded', () => {
+      rebuildScrubberTicks();
+      refreshAudioTrack();
+    });
+    setTimeout(() => { rebuildScrubberTicks(); refreshAudioTrack(); }, 200);
+  </script>
 </body>
+
 </html>

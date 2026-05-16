@@ -2,6 +2,7 @@ export interface IStroke {
     points: number[][];   // [x, y][]
     radii:  number[];     // per-point radius
     color:  number[];     // [r, g, b] normalized 0-1
+    isEraser?: boolean;
 }
 
 export interface IFrame {

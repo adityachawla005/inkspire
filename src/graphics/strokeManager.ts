@@ -75,14 +75,30 @@ export class StrokeManager {
         return [this.circleMesh.bufferLayout, instanceLayout];
     }
 
+    instanceRuns: { start: number, count: number, isEraser: boolean }[] = [];
+
     // ── Load a frame into the GPU buffer ──────────────────────────────────────
 
     loadFrame() {
         this.instanceCount = 0;
+        this.instanceRuns = [];
         const strokes = this.animMgr.getFrameStrokes(this.animMgr.currentFrameIndex);
+        
         for (const s of strokes) {
+            const isEraser = !!s.isEraser;
+            const start = this.instanceCount;
+            
             for (let i = 0; i < s.points.length; i++) {
                 this.pushInstance(s.points[i][0], s.points[i][1], s.color, s.radii[i], 1.0);
+            }
+            
+            const count = this.instanceCount - start;
+            if (count > 0) {
+                if (this.instanceRuns.length > 0 && this.instanceRuns[this.instanceRuns.length - 1].isEraser === isEraser) {
+                    this.instanceRuns[this.instanceRuns.length - 1].count += count;
+                } else {
+                    this.instanceRuns.push({ start, count, isEraser });
+                }
             }
         }
         this.flushInstanceBuffer();
@@ -117,7 +133,7 @@ export class StrokeManager {
     // ── Real-time drawing update ───────────────────────────────────────────────
 
     update(
-        drawing: boolean, erasing: boolean,
+        drawing: boolean, evaporating: boolean, trueErasing: boolean,
         drawX: number, drawY: number,
         lastDrawX: number | null, lastDrawY: number | null,
         brushSize: number, brushColor: number[],
@@ -129,7 +145,7 @@ export class StrokeManager {
         this.maxRadius = brushSize;
         this.minRadius = brushSize * (1 - taperFactor);
 
-        if (drawing && !erasing) {
+        if (drawing && !evaporating) {
             if (lastDrawX === null || lastDrawY === null) {
                 if (usePenPressure) {
                     const ep = Math.pow(Math.max(0, Math.min(1, pressure)), pressureCurve);
@@ -169,7 +185,7 @@ export class StrokeManager {
         }
 
         // Stroke commit
-        if (!drawing && !erasing && this.currentStrokePoints.length > 0) {
+        if (!drawing && !evaporating && this.currentStrokePoints.length > 0) {
             const total   = this.currentStrokePoints.length;
             const radii: number[] = [];
 
@@ -177,7 +193,7 @@ export class StrokeManager {
                 for (let i = 0; i < total; i++) radii.push(this.currentStrokePoints[i][3]);
                 const stroke: IStroke = {
                     points: this.currentStrokePoints.map(p => [p[0], p[1]]),
-                    radii, color: [...brushColor],
+                    radii, color: [...brushColor], isEraser: trueErasing
                 };
                 this.historyMgr.save(this.animMgr.currentStrokes);
                 this.animMgr.addStroke(stroke);
@@ -197,7 +213,7 @@ export class StrokeManager {
                 this.flushLast(total);
                 const stroke: IStroke = {
                     points: this.currentStrokePoints.map(p => [p[0], p[1]]),
-                    radii, color: [...brushColor],
+                    radii, color: [...brushColor], isEraser: trueErasing
                 };
                 this.historyMgr.save(this.animMgr.currentStrokes);
                 this.animMgr.addStroke(stroke);
@@ -205,8 +221,8 @@ export class StrokeManager {
             this.currentStrokePoints = [];
         }
 
-        // Erasing
-        if (erasing && drawing) {
+        // Evaporating (old erasing)
+        if (evaporating && drawing) {
             const strokes = this.animMgr.currentStrokes;
             for (let i = 0; i < strokes.length; i++) {
                 if (this.isPointOnStroke(strokes[i], drawX, drawY)) {
@@ -228,20 +244,37 @@ export class StrokeManager {
 
     // ── Rendering ──────────────────────────────────────────────────────────────
 
-    render(pass: GPURenderPassEncoder, pipeline: GPURenderPipeline, bindGroup: GPUBindGroup, showOnion: boolean) {
+    render(pass: GPURenderPassEncoder, ctx: GPUContextManager, showOnion: boolean, trueErasing: boolean) {
         if (showOnion && this.onionCount > 0) {
-            pass.setPipeline(pipeline);
+            pass.setPipeline(ctx.pipeline);
             pass.setVertexBuffer(0, this.circleMesh.buffer);
             pass.setVertexBuffer(1, this.onionBuffer);
-            pass.setBindGroup(0, bindGroup);
+            pass.setBindGroup(0, ctx.bindGroup);
             pass.draw(66, this.onionCount, 0, 0);
         }
         if (this.instanceCount > 0) {
-            pass.setPipeline(pipeline);
             pass.setVertexBuffer(0, this.circleMesh.buffer);
             pass.setVertexBuffer(1, this.instanceBuffer);
-            pass.setBindGroup(0, bindGroup);
-            pass.draw(66, this.instanceCount, 0, 0);
+            pass.setBindGroup(0, ctx.bindGroup);
+            
+            // Draw runs
+            for (const run of this.instanceRuns) {
+                pass.setPipeline(run.isEraser ? ctx.eraserPipeline : ctx.pipeline);
+                pass.draw(66, run.count, 0, run.start);
+            }
+            
+            // If there's an active uncommitted stroke, it is at the end
+            let committedCount = 0;
+            if (this.instanceRuns.length > 0) {
+                const lastRun = this.instanceRuns[this.instanceRuns.length - 1];
+                committedCount = lastRun.start + lastRun.count;
+            }
+            
+            if (this.instanceCount > committedCount) {
+                const uncommittedCount = this.instanceCount - committedCount;
+                pass.setPipeline(trueErasing ? ctx.eraserPipeline : ctx.pipeline);
+                pass.draw(66, uncommittedCount, 0, committedCount);
+            }
         }
     }
 

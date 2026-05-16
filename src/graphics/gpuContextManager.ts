@@ -10,6 +10,7 @@ export class GPUContextManager {
     uniformBuffer!: GPUBuffer;
     bindGroup!: GPUBindGroup;
     pipeline!: GPURenderPipeline;
+    eraserPipeline!: GPURenderPipeline;
 
     constructor(canvas: HTMLCanvasElement) {
         this.canvas = canvas;
@@ -55,6 +56,8 @@ export class GPUContextManager {
             bindGroupLayouts: [bindGroupLayout]
         });
 
+        const fsModule = this.device.createShaderModule({ code: shader });
+
         this.pipeline = this.device.createRenderPipeline({
             layout: pipelineLayout,
             vertex: {
@@ -63,7 +66,7 @@ export class GPUContextManager {
                 buffers: bufferLayouts
             },
             fragment: {
-                module: this.device.createShaderModule({ code: shader }),
+                module: fsModule,
                 entryPoint: "fs_main",
                 targets: [{
                     format: this.format,
@@ -73,6 +76,32 @@ export class GPUContextManager {
                     }
                 }]
             },
+            primitive: { topology: "triangle-strip" }
+        });
+
+        this.eraserPipeline = this.device.createRenderPipeline({
+            layout: pipelineLayout,
+            vertex: {
+                module: this.device.createShaderModule({ code: shader }),
+                entryPoint: "vs_main",
+                buffers: bufferLayouts
+            },
+            fragment: {
+                module: fsModule,
+                entryPoint: "fs_main",
+                targets: [{
+                    format: this.format,
+                    blend: {
+                        // Erase by subtracting source alpha (with dest-out like logic)
+                        // Actually, to make a true transparent hole in WebGPU:
+                        // output_color = dest_color * (1 - src_alpha) + src_color * 0
+                        // output_alpha = dest_alpha * (1 - src_alpha) + 0
+                        color: { srcFactor: "zero", dstFactor: "one-minus-src-alpha", operation: "add" },
+                        alpha: { srcFactor: "zero", dstFactor: "one-minus-src-alpha", operation: "add" }
+                    }
+                }]
+            },
+
             primitive: { topology: "triangle-strip" }
         });
     }

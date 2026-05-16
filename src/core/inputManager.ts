@@ -7,7 +7,8 @@ const DEFAULT_COLORS = ["#1c1814","#f7f3ec","#c0392b","#e67e22","#c0860a","#2980
 export class InputManager {
     isSpacePressed = false;
     isLeftClicked  = false;
-    isErasing      = false;
+    isEvaporating  = false;
+    isTrueErasing  = false;
     isGrabMode     = false;
     isRotateMode   = false;
     zoomOut = false;
@@ -71,12 +72,11 @@ export class InputManager {
             // Initial state: starts with .on class → usePenPressure = true
             this.usePenPressure = pressureTog.classList.contains("on");
             // The inline script also listens and toggles the .on class.
-            // We toggle our state to match, using capture phase to run before inline.
             pressureTog.addEventListener("click", () => {
-                // Read state AFTER the inline script toggles (microtask)
-                Promise.resolve().then(() => {
+                // Read state AFTER the inline script toggles (macrotask)
+                setTimeout(() => {
                     this.usePenPressure = pressureTog.classList.contains("on");
-                });
+                }, 0);
             });
         }
 
@@ -95,12 +95,14 @@ export class InputManager {
 
         // ── Tool buttons ─────────────────────────────────────────────────────
         document.getElementById("eraser-btn")?.addEventListener("click", () => {
-            this.isErasing = true;
+            this.isTrueErasing = true;
+            this.isEvaporating = false;
             document.getElementById("eraser-btn")?.classList.add("active");
             document.getElementById("brush-btn")?.classList.remove("active");
         });
         document.getElementById("brush-btn")?.addEventListener("click", () => {
-            this.isErasing = false;
+            this.isTrueErasing = false;
+            this.isEvaporating = false;
             document.getElementById("brush-btn")?.classList.add("active");
             document.getElementById("eraser-btn")?.classList.remove("active");
         });
@@ -169,7 +171,12 @@ export class InputManager {
         if (e.code === "KeyG")  this.isGrabMode   = false;
         if (e.code === "KeyR")  this.isRotateMode = false;
         if (e.code === "KeyE") {
-            this.isErasing = !this.isErasing;
+            this.isTrueErasing = !this.isTrueErasing;
+            if (this.isTrueErasing) this.isEvaporating = false;
+        }
+        if (e.code === "KeyQ") {
+            this.isEvaporating = !this.isEvaporating;
+            if (this.isEvaporating) this.isTrueErasing = false;
         }
     };
 

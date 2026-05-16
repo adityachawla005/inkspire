@@ -89,6 +89,7 @@ export class AnimationManager {
                     points: s.points.map(p => [...p]),
                     radii:  [...s.radii],
                     color:  [...s.color],
+                    isEraser: s.isEraser
                 }))
             ),
         };
@@ -176,6 +177,14 @@ export class AnimationManager {
             this.currentLayerIndex = 0;
             return true;
         } catch { return false; }
+    }
+
+    clearSession() {
+        this.animation = this.createDefault();
+        this.currentFrameIndex = 0;
+        this.currentLayerIndex = 0;
+        try { localStorage.removeItem(STORAGE_KEY); } catch {}
+        this.onChanged?.();
     }
 
     exportProject() {
